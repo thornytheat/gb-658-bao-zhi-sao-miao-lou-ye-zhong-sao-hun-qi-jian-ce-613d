@@ -14,6 +14,7 @@
 | M4 重扫判定 | 比较扫描候选并保留清晰版本 | POST /api/rescans/evaluate | `app/modules/m4_rescans/similarity.py` `app/modules/m4_rescans/decision.py` | `tests/test_m4_rescans.py` |
 | M5 混期归因 | 用页眉和页码证据裁决混期 | POST /api/mixed/evaluate | `app/modules/m5_mixed/evidence.py` `app/modules/m5_mixed/conflicts.py` | `tests/test_m5_mixed.py` |
 | M6 批次对账 | 检查四账并导出证据 | POST /api/reconcile | `app/modules/m6_batches/compare.py` `app/modules/m6_batches/exporter.py` | `tests/test_m6_batches.py` |
+| M7 补扫派工 | 生成缺页补扫、按站点容量接单、超时转派、回执与回读 | POST /api/dispatch/generate · /claim · /reassign · /receipt；GET /api/dispatch/tasks · /summary · /orders · /receipts · /verify | `app/modules/m7_dispatch/service.py` `app/modules/m7_dispatch/repo.py` | `tests/test_m7_dispatch.py` |
 
 ## 陷阱登记
 
@@ -29,12 +30,17 @@
 | TRAP-19 | 候选顺序改变 | 先到者决定保留项 | 显式排序键保持顺序无关 | `app/modules/m3_pages/sequence.py` | `tests/test_m3_pages.py::test_selection_order_independent` |
 | TRAP-22 | 同内容多别名 | 合并顺序改变代表扫描 | 清晰度后以时间和文件名择一 | `app/modules/m4_rescans/decision.py` | `tests/test_m4_rescans.py::test_selection_is_deterministic_on_tie` |
 | TRAP-26 | 陈旧重扫晚提交 | 旧版本覆盖新版 | 版本优先于输入顺序 | `app/modules/m3_pages/sequence.py` | `tests/test_m3_pages.py::test_higher_version_wins_not_later_input` |
+| TRAP-27 | 站点失联后死等整期 | 任务悬空或直接撤单丢执行证据 | 超时转派：原单关闭为 SUPERSEDED 保留，换发新凭据 | `app/modules/m7_dispatch/repo.py` | `tests/test_m7_dispatch.py::test_reassign_keeps_original_order_and_issues_new_credential` |
+| TRAP-28 | 旧站迟到回执 | 迟到回执覆盖或抵消新单 | 记 CONFLICT_PENDING，不完成、不影响在途新单 | `app/modules/m7_dispatch/repo.py` | `tests/test_m7_dispatch.py::test_late_receipt_enters_conflict_and_does_not_affect_new_order` |
+| TRAP-29 | 并发接单与过期版本 | 后到请求覆盖已接单状态 | 版本校验 + BEGIN IMMEDIATE，过期返回 STALE_VERSION | `app/modules/m7_dispatch/repo.py` | `tests/test_m7_dispatch.py::test_claim_rejects_stale_version` |
+| TRAP-30 | 派工写入失败后重试 | 名额重复占用或凭据换发 | 事务回滚；request_id 幂等复用首次结果 | `app/modules/m7_dispatch/repo.py` | `tests/test_m7_dispatch.py::test_write_failure_rolls_back_and_retry_does_not_double_book` |
 
 ## 对账规则
 
 - 应有页数 = 唯一采纳页 + 缺页数。
 - 扫描件数 = 唯一采纳 + 被替代重扫 + 混期 + 隔离。
 - 同一输入与规则版本重跑，运行标识和结果行数不变。
+- 补扫任务：缺页任务数 = 期望页序 − 已采纳唯一页；有效在途 = 未超时在途工单；容量占用 = 各站点在途工单数。
 
 ## 已知不覆盖
 
